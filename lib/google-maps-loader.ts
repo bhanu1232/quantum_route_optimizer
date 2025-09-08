@@ -32,7 +32,7 @@ export function loadGoogleMapsAPI(): Promise<void> {
     isLoading = true
 
     const script = document.createElement("script")
-    script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBtdLeqCmrtCK60UUgSrhAh88J7xEI981o&libraries=places`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBtdLeqCmrtCK60UUgSrhAh88J7xEI981o&libraries=places&loading=async`
     script.async = true
     script.defer = true
 
