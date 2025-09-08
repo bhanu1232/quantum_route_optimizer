@@ -54,7 +54,74 @@ export function LocationInput({ placeholder, onLocationSelect }: LocationInputPr
         fields: ["place_id", "name", "formatted_address", "geometry"],
       })
 
-      autocompleteRef.current.addListener("place_changed", () => {
+      // Apply styles to ensure the dropdown appears correctly
+      const fixPacContainerStyles = () => {
+        // Use a shorter delay for better responsiveness
+        setTimeout(() => {
+          const pacContainers = document.querySelectorAll('.pac-container')
+          pacContainers.forEach(container => {
+            const containerElement = container as HTMLElement
+            containerElement.style.zIndex = '9999'
+            containerElement.style.position = 'absolute'
+            containerElement.style.display = 'block'
+            containerElement.style.visibility = 'visible'
+            
+            // Ensure proper width and positioning
+            if (inputRef.current) {
+              const rect = inputRef.current.getBoundingClientRect()
+              containerElement.style.width = `${inputRef.current.offsetWidth}px`
+              containerElement.style.left = `${rect.left}px`
+              containerElement.style.top = `${rect.bottom}px`
+            }
+            
+            // Enhanced styles to ensure visibility
+            containerElement.style.marginTop = '2px'
+            containerElement.style.backgroundColor = 'white'
+            containerElement.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)'
+            containerElement.style.fontSize = '14px'
+            containerElement.style.overflow = 'hidden'
+            containerElement.style.border = '1px solid #ddd'
+            containerElement.style.borderRadius = '4px'
+            
+            // Make sure the dropdown is not hidden
+            containerElement.style.opacity = '1'
+            containerElement.style.pointerEvents = 'auto'
+            
+            // Fix any potential issues with parent containers
+            let parent = containerElement.parentElement
+            while (parent) {
+              if (getComputedStyle(parent).overflow === 'hidden') {
+                parent.style.overflow = 'visible'
+              }
+              parent = parent.parentElement
+            }
+          })
+        }, 150) // Shorter delay for better responsiveness
+      }
+
+      // Apply styles when input is focused or receives input
+      inputRef.current.addEventListener('focus', fixPacContainerStyles)
+      inputRef.current.addEventListener('input', fixPacContainerStyles)
+      
+      // Trigger the autocomplete dropdown when typing
+      inputRef.current.addEventListener('input', handleInputForAutocomplete)
+      
+      // Also set up a MutationObserver to detect when Google adds the pac-container to the DOM
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.addedNodes.length) {
+            const pacContainers = document.querySelectorAll('.pac-container')
+            if (pacContainers.length > 0) {
+              fixPacContainerStyles()
+            }
+          }
+        })
+      })
+      
+      // Start observing the document body for added nodes
+      observer.observe(document.body, { childList: true, subtree: true })
+      
+      const placeChangedListener = autocompleteRef.current.addListener("place_changed", () => {
         if (processingRef.current) return
         processingRef.current = true
 
@@ -77,6 +144,45 @@ export function LocationInput({ placeholder, onLocationSelect }: LocationInputPr
           processingRef.current = false
         }, 100)
       })
+      
+      // Store the input event handler for cleanup
+      const handleInputForAutocomplete = () => {
+        // Force the autocomplete to show suggestions
+        if (inputRef.current && inputRef.current.value.length > 0) {
+          // Add a small delay to ensure Google's API has time to process the input
+          setTimeout(() => {
+            // Ensure the pac-container is visible
+            fixPacContainerStyles()
+            
+            // Simulate a focus event to ensure Google's autocomplete activates
+            const focusEvent = new Event('focus', { bubbles: true })
+            inputRef.current?.dispatchEvent(focusEvent)
+            
+            // Force Google's autocomplete to update
+            if (autocompleteRef.current) {
+              // This triggers the internal Google Maps autocomplete mechanism
+              const inputEvent = new Event('input', { bubbles: true })
+              inputRef.current?.dispatchEvent(inputEvent)
+            }
+          }, 100)
+        }
+      }
+      
+      // Return cleanup function for the effect
+      return () => {
+        // Clean up event listeners
+        if (inputRef.current) {
+          inputRef.current.removeEventListener('focus', fixPacContainerStyles)
+          inputRef.current.removeEventListener('input', fixPacContainerStyles)
+          inputRef.current.removeEventListener('input', handleInputForAutocomplete)
+        }
+        // Disconnect the observer
+        observer.disconnect()
+        // Remove Google Maps listener
+        if (placeChangedListener) {
+          placeChangedListener.remove()
+        }
+      }
     }
   }, [isLoaded, onLocationSelect])
 
@@ -114,7 +220,7 @@ export function LocationInput({ placeholder, onLocationSelect }: LocationInputPr
     }
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       handleAddLocation()
     }
@@ -122,16 +228,45 @@ export function LocationInput({ placeholder, onLocationSelect }: LocationInputPr
 
   return (
     <div className="flex gap-2">
-      <div className="relative flex-1">
+      <div className="location-input-container relative flex-1">
         <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           ref={inputRef}
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onChange={(e) => {
+            setInputValue(e.target.value)
+            // Ensure autocomplete is triggered when typing
+            if (isLoaded && e.target.value.length > 0 && autocompleteRef.current) {
+              // This helps ensure the dropdown appears
+              const pacContainers = document.querySelectorAll('.pac-container')
+              if (pacContainers.length === 0) {
+                // If no dropdown is visible, force it to appear
+                setTimeout(() => {
+                  if (inputRef.current) {
+                    inputRef.current.focus()
+                  }
+                }, 10)
+              }
+            }
+          }}
+          onKeyDown={handleKeyDown}
+          onFocus={() => {
+            // Ensure dropdown appears on focus
+            if (isLoaded && inputValue.length > 0) {
+              setTimeout(() => {
+                const pacContainers = document.querySelectorAll('.pac-container')
+                if (pacContainers.length === 0) {
+                  // If no dropdown is visible, manually trigger input event
+                  const inputEvent = new Event('input', { bubbles: true })
+                  inputRef.current?.dispatchEvent(inputEvent)
+                }
+              }, 100)
+            }
+          }}
           placeholder={isLoaded ? placeholder : "Loading Google Maps..."}
           className="pl-10"
           disabled={!isLoaded}
+          autoComplete="off" // Prevent browser autocomplete from interfering
         />
       </div>
       <Button onClick={handleAddLocation} disabled={!inputValue.trim() || !isLoaded} size="icon" variant="outline">
